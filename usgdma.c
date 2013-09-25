@@ -251,8 +251,8 @@ static int usg_probe( struct pci_dev *dev,
 		goto err_map;
 	ret_val = 0;
 	printk(KERN_DEBUG "probe() successful.\n");
-	printk(KERN_DEBUG "register proc file.\n");
-	regProcFile( usg );
+	memset(usg->procout,0,1024);
+	sprintf(usg->procout,"noone write\n");
 	goto end;
 		
 err_map:		
@@ -295,8 +295,6 @@ static void usg_remove(struct pci_dev *dev)
 		(unsigned long)usg->pci_dev, (unsigned long)dev);
 	}
 	
-	printk(KERN_DEBUG "deregister proc file.\n");
-	deregProcFile(usg);
 
 	for( i=0;i<dmaBufNum;i++ ) {
 		if( usg->buf[i].buf_virt ) {
@@ -320,6 +318,8 @@ static int __init usg_init_module(void)
 	printk( KERN_DEBUG "Module usg_driver init\n" );
 
 	ret_val = pci_register_driver(&usg_driver);
+	printk(KERN_DEBUG "register proc file.\n");
+	regProcFile();
 
 	return ret_val;
 }
@@ -335,6 +335,8 @@ static void __exit usg_exit_module(void)
 	/*after unregistering all PCI devices bound to this driver
 	will be removed*/
 	pci_unregister_driver(&usg_driver);
+	printk(KERN_DEBUG "deregister proc file.\n");
+	deregProcFile();
 	
 	
 }

@@ -56,6 +56,9 @@
 
 #define WHITESPACE " \t\v\f\n"
 
+static struct usg_dev *proc_r = NULL;
+struct proc_dir_entry *usg_Proc_dir = NULL;
+
 static size_t ctrl_write( struct file *filp, 
 	const char __user *buf, 
 	size_t count, 
@@ -71,61 +74,60 @@ struct file_operations ctrl_file_op = {
 	.write = ctrl_write,
 };
 
-void regProcFile( struct usg_dev *dev )
+void regProcFile()
 {
-	dev->usg_Proc_dir = proc_mkdir( USGDMA_PROC_DIR, NULL );
+	usg_Proc_dir = proc_mkdir( USGDMA_PROC_DIR, NULL );
 	
-	dev->ctrl = proc_create_data( procfs_ctrl_file, 0666,
-					dev->usg_Proc_dir,
-					&ctrl_file_op,
-					(void *)dev
+	struct proc_dir_entry *ctrl = proc_create( procfs_ctrl_file, 0666,
+					usg_Proc_dir,
+					&ctrl_file_op
 					);
-	if ( dev->ctrl == NULL ) {
-		remove_proc_entry( dev->usg_Proc_dir, NULL );
+	if ( ctrl == NULL ) {
+		remove_proc_entry( USGDMA_PROC_DIR, NULL );
 		printk(KERN_ALERT "Error: Could not initialize /proc/%s/%s\n",
 			USGDMA_PROC_DIR,
 		    procfs_ctrl_file
 			);
-		return -ENOMEM;
+		return;
 	}
-
-	printk(KERN_INFO "/proc/%s/%s created\n", USGDMA_PROC_DIR,
-		    procfs_ctrl_file);		
+	proc_r=dev;
+	printk(KERN_INFO "/proc/%s/%s created \n", USGDMA_PROC_DIR,
+		    procfs_ctrl_file);
 }
 
 void deregProcFile( struct usg_dev *dev )
 {
-	remove_proc_entry( dev->ctrl,
-		dev->usg_Proc_dir);
-	remove_proc_entry( dev->usg_Proc_dir,
+	remove_proc_entry( procfs_ctrl_file,
+		usg_Proc_dir);
+	remove_proc_entry( USGDMA_PROC_DIR,
 		NULL);
 	printk(KERN_INFO "/proc/%s/%s /proc/%s remove\n", USGDMA_PROC_DIR,
 		    procfs_ctrl_file,
 		    USGDMA_PROC_DIR );	
 }
 
-static void proc_iowrite( char *buf, struct usg_dev * dev )
+static void proc_iowrite( char *buf )
 {
 	u32 addr;
 	u32 data;
 	sscanf(buf,"%x %x",&addr,&data);
-	usg_iowrite( addr, data, dev );	
+	usg_iowrite( addr, data, proc_r );	
 }
 
-static void proc_ioread( char *buf, struct usg_dev * dev )
+static void proc_ioread( char *buf )
 {
 	u32 addr;
 	u32 data;
 	sscanf(buf,"%x",&addr);
-	data = usg_ioread( addr, dev );
-	sprintf(dev->procout,"%x ",data);	
+	data = usg_ioread( addr, proc_r );
+	sprintf(proc_r->procout,"%x ",data);	
 }
 
-static void proc_info( struct usg_dev * dev )
+static void proc_info( )
 {
 	size_t pos = 0;
-	sprintf(dev->procout+pos,"#info of USG Driver \n");
-	pos = strlen(dev->procout);
+	sprintf(proc_r->procout+pos,"#info of USG Driver \n");
+	pos = strlen(proc_r->procout);
 		
 }
 
@@ -146,17 +148,20 @@ ctrl_read( struct file *filp,
 	size_t count, 
 	loff_t *f_pos)
 {
-	int ret;
+	size_t ret;
 	int len;
 	
 		
-	struct usg_dev *usg = (struct usg_dev *)filp->private_data;
-	
+	struct usg_dev *usg = (struct usg_dev *)proc_r;
+	printk( KERN_INFO "driver at %p\n", usg );
 	len = strlen(usg->procout); 
-	copy_to_user( buf, usg->procout, len+1 );
+	if( f_pos>len )
+		return 0;
 	printk(KERN_INFO "len = %d, first DW = %08x\n", len, *(int*)usg->procout);
+	copy_to_user( buf, usg->procout, len+1 );
 	
-	return (size_t)len+1;
+	ret = len+1;
+	return ret;
 }
 
 static size_t ctrl_write( struct file *filp, 
@@ -173,28 +178,28 @@ static size_t ctrl_write( struct file *filp,
         return -1;
     }
 	
-	printk(KERN_INFO "procfile_write (/proc/%s/io len=%d) called\n", USGDMA_PROC_DIR, count);
+	printk(KERN_INFO "procfile_write (/proc/%s/io len=%d) called\n", USGDMA_PROC_DIR, (int)count);
     if (copy_from_user( myBuf, buf, count ))
     {
         return -2;
     }
     
-	struct usg_dev *usg = (struct usg_dev *)filp->private_data;
+	struct usg_dev *usg = (struct usg_dev *)proc_r;
 	
 	myBuf[count] = '\0';
 	pos = cmpCommand(myBuf,"w");
 	if( pos ) {
-		proc_iowrite( myBuf+pos, usg );
+		proc_iowrite( myBuf+pos );
 		goto end;
 	}
 	pos = cmpCommand(myBuf,"r");
 	if( pos ) {
-		proc_ioread( myBuf+pos, usg );
+		proc_ioread( myBuf+pos );
 		goto end;
 	}
 	pos = cmpCommand(myBuf,"i");
 	if( pos ) {
-		proc_info( usg );
+		proc_info( );
 		goto end;
 	}
 end:

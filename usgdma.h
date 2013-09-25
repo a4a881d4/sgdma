@@ -46,8 +46,8 @@
 
 #define PCI_VENDOR_ID_USGDMA 0x1172
 
-#define USG_BAR_NUM (6)
-static const unsigned long bar_min_len[USG_BAR_NUM] =
+#define USG_BAR_NUM (3)
+static const unsigned long bar_min_len[6] =
 	{ 32768, 0, 256, 0, 32768, 0 };
 
 #define dmaBufNum (3)
@@ -187,9 +187,7 @@ struct usg_dev {
 	int irq_count;
 
 	struct dmaBuf buf[dmaBufNum];
-	char *procout[1024];
-	struct proc_dir_entry *ctrl;
-	struct proc_dir_entry *usg_Proc_dir;
+	char procout[1024];
 
 };
 
