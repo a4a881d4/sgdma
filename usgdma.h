@@ -29,8 +29,8 @@
 /*       for errors or fitness for use.                                 */
 /*======================================================================*/
 
-#ifndef USGDMA_DRIVER_H
-#define USGDMA_DRIVER_H
+#ifndef USG_DMA_H
+#define USG_DMA_H
 
 #define USGDMA_DRIVER_NAME 	"usg"
 #define USGDMA_BAR            0x00
@@ -42,11 +42,40 @@
 #define DMA_BUFFER_SIZE (4096 * 256)
 #define DMA_DTB_SIZE (4096)
 
+#define USG_BAR_HEADER (2)
+
 #define PCI_VENDOR_ID_USGDMA 0x1172
 
 #define BAR_NUM (6)
 static const unsigned long bar_min_len[BAR_NUM] =
 	{ 32768, 0, 256, 0, 32768, 0 };
+
+static const dmaBufNum = 3;
+
+struct dmaBufDescription {
+	char name[16];
+	unsigned long size;
+};
+
+static const struct dmaBufDescription constDmaBufDesc[dmaBufNum] = 
+{
+	{"table",DMA_DTB_SIZE},
+	{"in",DMA_BUFFER_SIZE},
+	{"out",DMA_BUFFER_SIZE}
+};
+
+struct dmaBuf {
+	/** 
+	 * kernel virtual address for buffer in Root Complex memory 
+	 */
+	void *buf_virt;
+	/**
+	 * bus address for the buffer in Root Complex memory, in
+	 * CPU-native endianess
+	 */
+	dma_addr_t buf_bus;
+};
+	
 
 /**
  * Descriptor Header, controls the DMA read engine or write engine.
@@ -150,13 +179,6 @@ struct usg_dev {
 	 * the End Point. Used by map_bars()/unmap_bars().
 	 */
 	void * __iomem bar[APE_BAR_NUM];
-	/** kernel virtual address for Descriptor Table in Root Complex memory */
-	struct usg_chdma_table *table_virt;
-	/**
-	 * bus address for the Descriptor Table in Root Complex memory, in
-	 * CPU-native endianess
-	 */
-	dma_addr_t table_bus;
 	/* if the device regions could not be allocated, assume and remember it
 	 * is in use by another driver; this driver must not disable the device.
 	 */
@@ -164,11 +186,14 @@ struct usg_dev {
 	/* interrupt count, incremented by the interrupt handler */
 	int irq_count;
 
-	void * buf_cpu_out;
-	void * buf_cpu_in;
-	dma_addr_t buf_cpu_out_bus;
-	dma_addr_t buf_cpu_in_bus;
-	
+	struct dmaBuf buf[dmaBufNum];
+	char *procout[1024];
+	struct proc_dir_entry *ctrl;
+	struct proc_dir_entry *usg_Proc_dir;
+
 };
+
+void usg_iowrite( u32 a, u32 d, struct usg_dev *dev );
+u32 usg_ioread( u32 a, struct usg_dev *dev );
 
 #endif /* USGDMA_DRIVER_H*/

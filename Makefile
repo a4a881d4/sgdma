@@ -1,4 +1,4 @@
-obj-m:=sgdma.o
+obj-m:=usgdma.o usgproc.o
 
 
 KDIR  := /lib/modules/$(shell uname -r)/build

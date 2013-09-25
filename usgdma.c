@@ -55,8 +55,6 @@
 
 #include <linux/proc_fs.h>	/* Necessary because we use the proc fs */
 
-#define procfs_name "usg"
-struct proc_dir_entry *usg_Proc_File;
 
 #include "usgdma.h"
 
@@ -110,48 +108,90 @@ static struct pci_driver usg_driver = {
 	.remove   = usg_remove,
 };
 
-/**
- * internal structure
- * info on our usg card
- */ 
-struct usg_struct {
-	void __iomem *base_address;	/* address in kernel space (virtual memory)*/
-	unsigned long mmio_base;		/* physical address */
-	unsigned long mmio_len;			/* size/length of the memory */
-	struct cdev cdev;						/* char device structure */
-};
-
-static struct usg_struct usg_card_struct;
-static struct usg_struct *usg_card = &usg_card_struct;
-
-/**
- * file operations structure
- * (file of operations that an application can invoke on the device)
- */
-struct file_operations usg_fops = {
-	.owner =	THIS_MODULE,
-	.open =		usg_open,
-	.read =		usg_read,
-	.write =	usg_write,
-	.release =	usg_release,
-};
-
-/**
- * open function
- * 
- * get the pointer to the usg_struct and store it in the 
- * private_data space
- */
-int usg_open(struct inode *inode, struct file *filp)
+static int scan_bars(struct usg_dev *usg, struct pci_dev *dev)
 {
-  struct usg_struct *dev; // device information
-
-  dev = container_of(inode->i_cdev, struct usg_struct, cdev);
-  filp->private_data = dev; // store for other methods 
-
-  printk(KERN_DEBUG "opening dev\n");
-  return 0;
+	int i;
+	for (i = 0; i < BAR_NUM; i++) {
+		unsigned long bar_start = pci_resource_start(dev, i);
+		if (bar_start) {
+			unsigned long bar_end = pci_resource_end(dev, i);
+			unsigned long bar_flags = pci_resource_flags(dev, i);
+			printk(KERN_DEBUG "BAR%d 0x%08lx-0x%08lx flags 0x%08lx\n",
+			  i, bar_start, bar_end, bar_flags);
+		}
+	}
+	return 0;
 }
+
+/**
+ * Map the device memory regions into kernel virtual address space after
+ * verifying their sizes respect the minimum sizes needed, given by the
+ * bar_min_len[] array.
+ */
+static int map_bars(struct usg_dev *usg, struct pci_dev *dev)
+{
+	int rc;
+	int i;
+	/* iterate through all the BARs */
+	for (i = 0; i < BAR_NUM; i++) {
+		unsigned long bar_start = pci_resource_start(dev, i);
+		unsigned long bar_end = pci_resource_end(dev, i);
+		unsigned long bar_length = bar_end - bar_start + 1;
+		usg->bar[i] = NULL;
+		/* do not map, and skip, BARs with length 0 */
+		if (!bar_min_len[i])
+			continue;
+		/* do not map BARs with address 0 */
+		if (!bar_start || !bar_end) {
+            printk(KERN_DEBUG "BAR #%d is not present?!\n", i);
+			rc = -1;
+			goto fail;
+		}
+		bar_length = bar_end - bar_start + 1;
+		/* BAR length is less than driver requires? */
+		if (bar_length < bar_min_len[i]) {
+            printk(KERN_DEBUG "BAR #%d length = %lu bytes but driver "
+            "requires at least %lu bytes\n", i, bar_length, bar_min_len[i]);
+			rc = -1;
+			goto fail;
+		}
+		/* map the device memory or IO region into kernel virtual
+		 * address space */
+		usg->bar[i] = pci_iomap(dev, i, bar_min_len[i]);
+		if (!usg->bar[i]) {
+			printk(KERN_DEBUG "Could not map BAR #%d.\n", i);
+			rc = -1;
+			goto fail;
+		}
+        printk(KERN_DEBUG "BAR[%d] mapped at 0x%p with length %lu(/%lu).\n", i,
+			usg->bar[i], bar_min_len[i], bar_length);
+	}
+	/* succesfully mapped all required BAR regions */
+	rc = 0;
+	goto success;
+fail:
+	/* unmap any BARs that we did map */
+	unmap_bars(usg, dev);
+success:
+	return rc;
+}
+
+/**
+ * Unmap the BAR regions that had been mapped earlier using map_bars()
+ */
+static void unmap_bars(struct usg_dev *usg, struct pci_dev *dev)
+{
+	int i;
+	for (i = 0; i < BAR_NUM; i++) {
+	  /* is this BAR mapped? */
+		if (usg->bar[i]) {
+			/* unmap BAR */
+			pci_iounmap(dev, usg->bar[i]);
+			usg->bar[i] = NULL;
+		}
+	}
+}
+
 
 /**
  * release function
@@ -165,72 +205,6 @@ int usg_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
-/**
- * read function
- */
-ssize_t usg_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)//f_pos 是这次对文件进行操作的起始位置
-{
-	return count;
-}
-
-/**
- * write function
- */
-ssize_t usg_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
-{
-	struct usg_struct *dev = filp->private_data;
-	return count;
-}
-
-/**
- * Set up the char_dev structure for this device.
- */
-static int usg_setup_cdev(struct usg_struct *dev)
-{
-  int err = 0; 
-  dev_t devno = MKDEV(usg_major, usg_minor);
-
-  cdev_init(&dev->cdev, &usg_fops);
-  dev->cdev.owner = THIS_MODULE;
-  dev->cdev.ops = &usg_fops;
-  /* note: do not call cdev_add until the driver is completly ready 
-  to handle operations on the device */
-  err = cdev_add (&dev->cdev, devno, 1); 
-  /* Fail gracefully if need be */
-  if (err)
-    printk(KERN_WARNING "Error %d adding usg", err);
-  
-  return err;
-}
-
-/**
- * Get major and minor number to work with, asking for a dynamic
- * major unless directed otherwise at load or compile time.
- */
-int allocate_device_number(void)
-{
-  int result = 0;
-  dev_t dev = 0;
-  
-  if (usg_major) {   //if major number defined
-    dev = MKDEV(usg_major, usg_minor);
-    result = register_chrdev_region(dev, 
-                                    usg_nr_devs, USGDMA_DRIVER_NAME);
-  } else { //if major num not defined (equals 0)- allocate dynamically
-    result = alloc_chrdev_region(&dev, usg_minor, 
-                                  usg_nr_devs, USGDMA_DRIVER_NAME);
-    usg_major = MAJOR(dev);
-  }
-  if (result < 0) {
-    printk(KERN_WARNING "usg_driver: can't get major %d\n",
-           usg_major);
-    return result;
-  }
-  printk(KERN_DEBUG "usg_driver: major number is %d\n", 
-         usg_major);
-  
-  return result;
-}
 
 /**
  * This function is called by the PCI core when 
@@ -238,39 +212,71 @@ int allocate_device_number(void)
  * 
  * Purpose: initialize the device properly 
  */
-static int usg_probe(struct pci_dev *dev, 
-                                      const struct pci_device_id *id)
+static int usg_probe( struct pci_dev *dev, 
+                      const struct pci_device_id *id )
 {
 	int ret_val = 0;
-	u16 command;
+	int i;
+	struct usg_dev *usg = NULL;
 
-	//initialization of physical mmio_base and mmio_len
-	usg_card->mmio_base = pci_resource_start(dev,USGDMA_BAR);
-	usg_card->mmio_len = pci_resource_len(dev,USGDMA_BAR);
-	usg_card->base_address = pci_iomap(dev, USGDMA_BAR, usg_card->mmio_len);
+	printk(KERN_DEBUG "probe(dev = 0x%p, pciid = 0x%p)\n", dev, id);
 
-	printk(KERN_DEBUG "usgdma card found!\n");
-	printk(KERN_DEBUG "BAR1 Start Address: %lx\n", usg_card->mmio_base);
-	printk(KERN_DEBUG "BAR1 Mem Len:%lu\n", usg_card->mmio_len);
+	/* allocate memory for per-board book keeping */
+	usg = kzalloc(sizeof(struct usg_dev), GFP_KERNEL);
+	if (!usg) {
+		printk(KERN_DEBUG "Could not kzalloc() usg driver memory.\n");
+		goto err_usg;
+	}
+	usg->pci_dev = dev;
+	dev->dev.p = (void *)usg;
+	printk(KERN_DEBUG "probe() ape = 0x%p\n", usg);
 
-
+	for( i=0;i<dmaBufNum;i++ ) {
+		usg->buf[i].buf_virt = (void *)pci_alloc_consistent(dev,
+			constDmaBufDesc[i].size, 
+			&(usg->buf[i].buf_bus)
+			);
+		if( !usg->buf[i].buf_virt ) {
+			printk(KERN_DEBUG "Could not dma_alloc(%d)ate_coherent memory.\n",i);
+			goto err_table;
+		}
+	}
 	//wake up the device
 	ret_val = pci_enable_device(dev);
 	if(ret_val!=0){
 		printk(KERN_WARNING "function pci_enable_device failed\n");
-		return 1;
+		goto err_enable;
 	}
-
-
-	// setup cdev structure 
-	// afterwards the kernel can access the operations on the device
-	ret_val = usg_setup_cdev(usg_card);
-	if(ret_val != 0) {
-		printk(KERN_WARNING "cannot add device to the system!\n");
-		return 1;
+	
+	/* show BARs */
+	scan_bars(usg, dev);
+	/* map BARs */
+	ret_val = map_bars(usg, dev);
+	if (ret_val)
+		goto err_map;
+	ret_val = 0;
+	printk(KERN_DEBUG "probe() successful.\n");
+	printk(KERN_DEBUG "register proc file.\n");
+	regProcFile(usg);
+	goto end;
+		
+err_map:		
+err_enable:
+err_table:
+	for( i=0;i<dmaBufNum;i++ ) {
+		if( usg->buf[i].buf_virt ) {
+			pci_free_consistent( dev, 
+				constDmaBufDesc[i].size, 
+				usg->buf[i].buf_virt, 
+				usg->buf[i].buf_bus
+			);
+		}
 	}
-
-	return 0;
+	if(usg)
+		kfree(usg);
+err_usg:
+end:
+	return ret_val;
 }
 
 /**
@@ -279,56 +285,37 @@ static int usg_probe(struct pci_dev *dev,
 static void usg_remove(struct pci_dev *dev)
 {
 	printk(KERN_DEBUG "usg_driver removing...\n" ); 
+	int i;
+	struct usg_dev *usg;
+	
+	printk(KERN_DEBUG "remove(0x%p)\n", dev);
+	if ((dev == 0) || (dev->dev.p == 0)) {
+		printk(KERN_DEBUG "remove(dev = 0x%p) dev->dev.driver_data = 0x%p\n", dev, dev->dev.p);
+		return;
+	}
+	usg = (struct usg_dev *)dev->dev.p;
+	printk(KERN_DEBUG "remove(dev = 0x%p) where dev->dev.driver_data = 0x%p\n", dev, usg);
+	if (usg->pci_dev != dev) {
+		printk(KERN_DEBUG "dev->dev.driver_data->pci_dev (0x%08lx) != dev (0x%08lx)\n",
+		(unsigned long)usg->pci_dev, (unsigned long)dev);
+	}
+	
+	printk(KERN_DEBUG "deregister proc file.\n");
+	deregProcFile(usg);
 
-	//remove char device from the system
-	cdev_del(&usg_card->cdev);
-
-	//release virtual memory
-	iounmap(usg_card->base_address);
+	for( i=0;i<dmaBufNum;i++ ) {
+		if( usg->buf[i].buf_virt ) {
+			pci_free_consistent( dev, 
+				constDmaBufDesc[i].size, 
+				usg->buf[i].buf_virt, 
+				usg->buf[i].buf_bus
+			);
+		}
+	}
 	pci_disable_device(dev);
 }
 
-static size_t
-procfile_read(char *buffer,
-	      char **buffer_location,
-	      off_t offset, int buffer_length, int *eof, void *data)
-{
-	int ret;
-	int len;
-	
-	printk(KERN_INFO "procfile_read (/proc/%s len=%d off=%d) called\n", procfs_name, buffer_length,offset);
-	
-	len = buffer_length;
-	
-	if( offset+buffer_length > 8192 ) 
-	{
-		*eof=1;
-		len=8192-offset;
-	}
-	memcpy( buffer, usg_card->base_address+offset, len );
-	
-	printk(KERN_INFO "first DW = %08x\n", *(int*)buffer);
-	
-	return len;
 
-}
-
-static ssize_t procfile_write( struct file *filp, const char __user *buff, unsigned long len, void *data )
-{
-    int capacity = 8192;
-    if (len > capacity)
-    {
-        printk(KERN_INFO "No space to write in procEntry123!\n");
-        return -1;
-    }
-		printk(KERN_INFO "procfile_write (/proc/%s len=%d) called\n", procfs_name, len);
-    if (copy_from_user( usg_card->base_address, buff, len ))
-    {
-        return -2;
-    }
-
-    return len;
-}
 /**
  * init module function
  */
@@ -336,24 +323,9 @@ static int __init usg_init_module(void)
 {
 	int ret_val = 0;
 	printk( KERN_DEBUG "Module usg_driver init\n" );
-	ret_val = allocate_device_number();
+
 	ret_val = pci_register_driver(&usg_driver);
-	
-	usg_Proc_File = create_proc_entry(procfs_name, 0666, NULL);
-	
-	if (usg_Proc_File == NULL) {
-		remove_proc_entry(procfs_name, NULL);
-		printk(KERN_ALERT "Error: Could not initialize /proc/%s\n",
-		       procfs_name);
-		return -ENOMEM;
-	}
 
-	usg_Proc_File->read_proc = procfile_read;
-	usg_Proc_File->write_proc = procfile_write;
-	usg_Proc_File->size 	 = 8192;
-
-	printk(KERN_INFO "/proc/%s created\n", procfs_name);	
-	
 	return ret_val;
 }
 
@@ -363,19 +335,27 @@ static int __init usg_init_module(void)
  
 static void __exit usg_exit_module(void)
 {
-	dev_t dev_no = MKDEV(usg_major, usg_minor);
-
 	printk( KERN_DEBUG "Module usg_driver exit\n" );
 
 	/*after unregistering all PCI devices bound to this driver
 	will be removed*/
 	pci_unregister_driver(&usg_driver);
+
 	//deallocate device numbers
-	unregister_chrdev_region(dev_no, usg_nr_devs);
-	
-	remove_proc_entry(procfs_name, NULL);
 	printk(KERN_INFO "/proc/%s removed\n", procfs_name);
 }
+
+
+void usg_iowrite( u32 a, u32 d, struct usg_dev *dev )
+{
+	iowrite32( d, dev->bar[USG_BAR_HEADER]+a );
+}
+
+u32 usg_ioread( u32 a, struct usg_dev *dev )
+{
+	return ioread32( dev->bar[USG_BAR_HEADER]+a );	
+}
+
 
 module_init(usg_init_module);
 module_exit(usg_exit_module);
