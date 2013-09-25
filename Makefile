@@ -1,5 +1,5 @@
-obj-m:=usgdma.o usgproc.o
-
+obj-m := sgdma.o
+sgdma-objs := usgproc.o usgdma.o 
 
 KDIR  := /lib/modules/$(shell uname -r)/build
 PWD   := $(shell pwd)

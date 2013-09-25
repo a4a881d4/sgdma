@@ -29,34 +29,56 @@
 /*       No warranty is attached, we cannot take responsibility         */
 /*       for errors or fitness for use.                                 */
 /*======================================================================*/
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/moduleparam.h>
+#include <linux/pci.h>
+#include <linux/vmalloc.h>
+#include <linux/ioport.h>
+#include <linux/fs.h>
+#include <linux/kdev_t.h>
+#include <linux/cdev.h>
+#include <linux/capability.h>
+#include <linux/sched.h>
+#include <linux/interrupt.h>
+#include <linux/delay.h>
+
+#include <asm/io.h>
+#include <asm/irq.h>
+#include <asm/uaccess.h>
+#include <asm/byteorder.h>
+
+#include <linux/proc_fs.h>
+
 #include "usgdma.h"
 #include "usgproc.h"
 
+#define WHITESPACE " \t\v\f\n"
+
 static size_t ctrl_write( struct file *filp, 
-						const char __user *buff, 
-						unsigned long len, 
-						void *data 
-						);
+	const char __user *buf, 
+	size_t count, 
+	loff_t *f_pos );
 
 static size_t ctrl_read( struct file *filp, 
-						const char __user *buff, 
-						unsigned long len, 
-						void *data 
-						);
+	char __user *buf, 
+	size_t count, 
+	loff_t *f_pos );
 
-struct file_operations ctrl_file_op {
+struct file_operations ctrl_file_op = {
 	.read = ctrl_read,
 	.write = ctrl_write,
 };
 
-void regProcFile( struct usg_dev *dev );
+void regProcFile( struct usg_dev *dev )
 {
 	dev->usg_Proc_dir = proc_mkdir( USGDMA_PROC_DIR, NULL );
 	
-	dev->ctrl = proc_create_data( procfs_io_file, 0666,
+	dev->ctrl = proc_create_data( procfs_ctrl_file, 0666,
 					dev->usg_Proc_dir,
-					ctrl_file_op,
-					dev
+					&ctrl_file_op,
+					(void *)dev
 					);
 	if ( dev->ctrl == NULL ) {
 		remove_proc_entry( dev->usg_Proc_dir, NULL );
@@ -71,7 +93,7 @@ void regProcFile( struct usg_dev *dev );
 		    procfs_ctrl_file);		
 }
 
-void deregProcFile( struct usg_dev *dev );
+void deregProcFile( struct usg_dev *dev )
 {
 	remove_proc_entry( dev->ctrl,
 		dev->usg_Proc_dir);
@@ -82,7 +104,7 @@ void deregProcFile( struct usg_dev *dev );
 		    USGDMA_PROC_DIR );	
 }
 
-static void proc_iowrite( char *buf, struct usg_dev * )
+static void proc_iowrite( char *buf, struct usg_dev * dev )
 {
 	u32 addr;
 	u32 data;
@@ -90,7 +112,7 @@ static void proc_iowrite( char *buf, struct usg_dev * )
 	usg_iowrite( addr, data, dev );	
 }
 
-static void proc_ioread( char *buf, struct usg_dev * )
+static void proc_ioread( char *buf, struct usg_dev * dev )
 {
 	u32 addr;
 	u32 data;
@@ -99,7 +121,7 @@ static void proc_ioread( char *buf, struct usg_dev * )
 	sprintf(dev->procout,"%x ",data);	
 }
 
-static void proc_info( struct usg_dev * )
+static void proc_info( struct usg_dev * dev )
 {
 	size_t pos = 0;
 	sprintf(dev->procout+pos,"#info of USG Driver \n");
@@ -119,53 +141,47 @@ static size_t cmpCommand( char *buf, const char *cmd )
 }
 
 static size_t
-ctrl_read( char *buffer,
-	      char **buffer_location,
-	      off_t offset, 
-	      int buffer_length, 
-	      int *eof, 
-	      void *data
-	      )
+ctrl_read( struct file *filp, 
+	char __user *buf, 
+	size_t count, 
+	loff_t *f_pos)
 {
 	int ret;
 	int len;
 	
-	printk( KERN_INFO "procfile_read (/proc/%s/ctrl len=%d off=%d) called\n", 
-		USGDMA_PROC_DIR, 
-		buffer_length,
-		offset
-		);
 		
-	struct usg_dev *usg = (struct usg_dev *)data;
+	struct usg_dev *usg = (struct usg_dev *)filp->private_data;
 	
 	len = strlen(usg->procout); 
-	*eof=1;
-	*buffer_location = usg->procout;	
-	printk(KERN_INFO "first DW = %08x\n", *(int*)usg->procout);
+	copy_to_user( buf, usg->procout, len+1 );
+	printk(KERN_INFO "len = %d, first DW = %08x\n", len, *(int*)usg->procout);
 	
-	return len;
+	return (size_t)len+1;
 }
 
-static ssize_t ctrl_write( struct file *filp, const char __user *buff, unsigned long len, void *data )
+static size_t ctrl_write( struct file *filp, 
+	const char __user *buf, 
+	size_t count, 
+	loff_t *f_pos )
 {
     int capacity = 255;
     char myBuf[256];
     size_t pos=0;
-    if (len > capacity)
+    if (count > capacity)
     {
         printk(KERN_INFO "too long command\n");
         return -1;
     }
 	
-	printk(KERN_INFO "procfile_write (/proc/%s/io len=%d) called\n", USGDMA_PROC_DIR, len);
-    if (copy_from_user( myBuf, buff, len ))
+	printk(KERN_INFO "procfile_write (/proc/%s/io len=%d) called\n", USGDMA_PROC_DIR, count);
+    if (copy_from_user( myBuf, buf, count ))
     {
         return -2;
     }
     
-	struct usg_dev *usg = (struct usg_dev *)data;
+	struct usg_dev *usg = (struct usg_dev *)filp->private_data;
 	
-	myBuf[len] = '\0';
+	myBuf[count] = '\0';
 	pos = cmpCommand(myBuf,"w");
 	if( pos ) {
 		proc_iowrite( myBuf+pos, usg );
@@ -178,9 +194,9 @@ static ssize_t ctrl_write( struct file *filp, const char __user *buff, unsigned 
 	}
 	pos = cmpCommand(myBuf,"i");
 	if( pos ) {
-		proc_info( myBuf+pos, usg );
+		proc_info( usg );
 		goto end;
 	}
 end:
-    return len;
+    return count;
 }

@@ -57,7 +57,7 @@
 
 
 #include "usgdma.h"
-
+#include "usgproc.h"
 
 MODULE_DESCRIPTION("usg");
 MODULE_AUTHOR("a4a881d4");
@@ -68,12 +68,7 @@ MODULE_LICENSE("GPL");
  */
 static void usg_remove( struct pci_dev *dev );
 static int usg_probe( struct pci_dev *dev, const struct pci_device_id *id );
-
-/**
- * module parameters that can be passed in
- */
-
-module_param(usg_dma_buffer_size, int, S_IRUGO);
+static void unmap_bars(struct usg_dev *usg, struct pci_dev *dev);
 
 /**
  * define devices our driver supports
@@ -111,7 +106,7 @@ static struct pci_driver usg_driver = {
 static int scan_bars(struct usg_dev *usg, struct pci_dev *dev)
 {
 	int i;
-	for (i = 0; i < BAR_NUM; i++) {
+	for (i = 0; i < USG_BAR_NUM; i++) {
 		unsigned long bar_start = pci_resource_start(dev, i);
 		if (bar_start) {
 			unsigned long bar_end = pci_resource_end(dev, i);
@@ -133,7 +128,7 @@ static int map_bars(struct usg_dev *usg, struct pci_dev *dev)
 	int rc;
 	int i;
 	/* iterate through all the BARs */
-	for (i = 0; i < BAR_NUM; i++) {
+	for (i = 0; i < USG_BAR_NUM; i++) {
 		unsigned long bar_start = pci_resource_start(dev, i);
 		unsigned long bar_end = pci_resource_end(dev, i);
 		unsigned long bar_length = bar_end - bar_start + 1;
@@ -182,7 +177,7 @@ success:
 static void unmap_bars(struct usg_dev *usg, struct pci_dev *dev)
 {
 	int i;
-	for (i = 0; i < BAR_NUM; i++) {
+	for (i = 0; i < USG_BAR_NUM; i++) {
 	  /* is this BAR mapped? */
 		if (usg->bar[i]) {
 			/* unmap BAR */
@@ -257,7 +252,7 @@ static int usg_probe( struct pci_dev *dev,
 	ret_val = 0;
 	printk(KERN_DEBUG "probe() successful.\n");
 	printk(KERN_DEBUG "register proc file.\n");
-	regProcFile(usg);
+	regProcFile( usg );
 	goto end;
 		
 err_map:		
@@ -340,9 +335,8 @@ static void __exit usg_exit_module(void)
 	/*after unregistering all PCI devices bound to this driver
 	will be removed*/
 	pci_unregister_driver(&usg_driver);
-
-	//deallocate device numbers
-	printk(KERN_INFO "/proc/%s removed\n", procfs_name);
+	
+	
 }
 
 

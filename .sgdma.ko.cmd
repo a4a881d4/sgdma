@@ -1,0 +1,1 @@
+cmd_/home/dx/works/altera/code/sgdma/sgdma.ko := ld -r -m elf_x86_64 -T /usr/src/linux-headers-3.8.0-19-generic/scripts/module-common.lds --build-id  -o /home/dx/works/altera/code/sgdma/sgdma.ko /home/dx/works/altera/code/sgdma/sgdma.o /home/dx/works/altera/code/sgdma/sgdma.mod.o

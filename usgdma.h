@@ -46,11 +46,11 @@
 
 #define PCI_VENDOR_ID_USGDMA 0x1172
 
-#define BAR_NUM (6)
-static const unsigned long bar_min_len[BAR_NUM] =
+#define USG_BAR_NUM (6)
+static const unsigned long bar_min_len[USG_BAR_NUM] =
 	{ 32768, 0, 256, 0, 32768, 0 };
 
-static const dmaBufNum = 3;
+#define dmaBufNum (3)
 
 struct dmaBufDescription {
 	char name[16];
@@ -178,7 +178,7 @@ struct usg_dev {
 	 * kernel virtual address of the mapped BAR memory and IO regions of
 	 * the End Point. Used by map_bars()/unmap_bars().
 	 */
-	void * __iomem bar[APE_BAR_NUM];
+	void * __iomem bar[USG_BAR_NUM];
 	/* if the device regions could not be allocated, assume and remember it
 	 * is in use by another driver; this driver must not disable the device.
 	 */
