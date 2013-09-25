@@ -253,6 +253,8 @@ static int usg_probe( struct pci_dev *dev,
 	printk(KERN_DEBUG "probe() successful.\n");
 	memset(usg->procout,0,1024);
 	sprintf(usg->procout,"noone write\n");
+	usg->procpos=strlen(usg->procout)+1;
+	proc_r=usg;
 	goto end;
 		
 err_map:		

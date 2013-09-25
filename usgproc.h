@@ -37,8 +37,11 @@
 #define USGDMA_PROC_DIR "usg"
 
 
-void regProcFile( struct usg_dev *dev );
-void deregProcFile( struct usg_dev *dev );
+void regProcFile(void);
+void deregProcFile(void);
+
+
+extern struct usg_dev *proc_r;
 
 #endif
 

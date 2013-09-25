@@ -56,7 +56,7 @@
 
 #define WHITESPACE " \t\v\f\n"
 
-static struct usg_dev *proc_r = NULL;
+struct usg_dev *proc_r = NULL;
 struct proc_dir_entry *usg_Proc_dir = NULL;
 
 static size_t ctrl_write( struct file *filp, 
@@ -90,12 +90,11 @@ void regProcFile()
 			);
 		return;
 	}
-	proc_r=dev;
 	printk(KERN_INFO "/proc/%s/%s created \n", USGDMA_PROC_DIR,
 		    procfs_ctrl_file);
 }
 
-void deregProcFile( struct usg_dev *dev )
+void deregProcFile()
 {
 	remove_proc_entry( procfs_ctrl_file,
 		usg_Proc_dir);
@@ -112,6 +111,7 @@ static void proc_iowrite( char *buf )
 	u32 data;
 	sscanf(buf,"%x %x",&addr,&data);
 	usg_iowrite( addr, data, proc_r );	
+	printk( KERN_INFO "write driver at %p\n", proc_r );
 }
 
 static void proc_ioread( char *buf )
@@ -120,15 +120,16 @@ static void proc_ioread( char *buf )
 	u32 data;
 	sscanf(buf,"%x",&addr);
 	data = usg_ioread( addr, proc_r );
-	sprintf(proc_r->procout,"%x ",data);	
+	sprintf(proc_r->procout,"%x ",data);
+	proc_r->procpos=strlen(proc_r->procout)+1;	
+	printk( KERN_INFO "read driver at %p\n", proc_r );
 }
 
-static void proc_info( )
+static void proc_info()
 {
 	size_t pos = 0;
 	sprintf(proc_r->procout+pos,"#info of USG Driver \n");
-	pos = strlen(proc_r->procout);
-		
+	proc_r->procpos = strlen(proc_r->procout)+1;
 }
 
 static size_t cmpCommand( char *buf, const char *cmd )
@@ -155,12 +156,13 @@ ctrl_read( struct file *filp,
 	struct usg_dev *usg = (struct usg_dev *)proc_r;
 	printk( KERN_INFO "driver at %p\n", usg );
 	len = strlen(usg->procout); 
-	if( f_pos>len )
+	if( usg->procpos<0 )
 		return 0;
-	printk(KERN_INFO "len = %d, first DW = %08x\n", len, *(int*)usg->procout);
+	printk(KERN_INFO "len = %d, first DW = %08x %ld\n", len, *(int*)usg->procout, *f_pos);
 	copy_to_user( buf, usg->procout, len+1 );
 	
 	ret = len+1;
+	usg->procpos-=ret;
 	return ret;
 }
 
@@ -184,8 +186,6 @@ static size_t ctrl_write( struct file *filp,
         return -2;
     }
     
-	struct usg_dev *usg = (struct usg_dev *)proc_r;
-	
 	myBuf[count] = '\0';
 	pos = cmpCommand(myBuf,"w");
 	if( pos ) {

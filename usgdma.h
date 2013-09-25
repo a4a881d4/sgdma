@@ -188,7 +188,7 @@ struct usg_dev {
 
 	struct dmaBuf buf[dmaBufNum];
 	char procout[1024];
-
+	int procpos;
 };
 
 void usg_iowrite( u32 a, u32 d, struct usg_dev *dev );
