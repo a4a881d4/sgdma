@@ -50,6 +50,7 @@
 #include <asm/byteorder.h>
 
 #include <linux/proc_fs.h>
+#include <linux/mm.h>
 
 #include "usgdma.h"
 #include "usgproc.h"
@@ -74,14 +75,58 @@ struct file_operations ctrl_file_op = {
 	.write = ctrl_write,
 };
 
+static int tab_buf_mmap(struct file *file, struct vm_area_struct * vma)
+{
+	printk(KERN_INFO "tab buf mmap\n" );
+	long int offset = vma->vm_pgoff << PAGE_SHIFT;
+	io_remap_pfn_range( vma, 
+		vma->vm_start, 
+		(proc_r->buf[0].buf_bus + offset) >> PAGE_SHIFT, 
+		vma->vm_end - vma->vm_start, 
+		vma->vm_page_prot
+		);	
+}
+
+static int in_buf_mmap(struct file *file, struct vm_area_struct * vma)
+{
+	printk(KERN_INFO "in buf mmap\n" );
+	long int offset = vma->vm_pgoff << PAGE_SHIFT;
+	io_remap_pfn_range( vma, 
+		vma->vm_start, 
+		(proc_r->buf[1].buf_bus + offset) >> PAGE_SHIFT, 
+		vma->vm_end - vma->vm_start, 
+		vma->vm_page_prot
+		);	
+}
+
+static int out_buf_mmap(struct file *file, struct vm_area_struct * vma)
+{
+	printk(KERN_INFO "out buf mmap\n" );
+	long int offset = vma->vm_pgoff << PAGE_SHIFT;
+	io_remap_pfn_range( vma, 
+		vma->vm_start, 
+		(proc_r->buf[2].buf_bus + offset) >> PAGE_SHIFT, 
+		vma->vm_end - vma->vm_start, 
+		vma->vm_page_prot
+		);	
+}
+
+struct file_operations buf_file_op[3] = {
+	{ .mmap = tab_buf_mmap, },
+	{ .mmap = in_buf_mmap, },
+	{ .mmap = out_buf_mmap, },
+};
+
 void regProcFile()
 {
+	int i;
 	usg_Proc_dir = proc_mkdir( USGDMA_PROC_DIR, NULL );
 	
 	struct proc_dir_entry *ctrl = proc_create( procfs_ctrl_file, 0666,
 					usg_Proc_dir,
 					&ctrl_file_op
 					);
+	
 	if ( ctrl == NULL ) {
 		remove_proc_entry( USGDMA_PROC_DIR, NULL );
 		printk(KERN_ALERT "Error: Could not initialize /proc/%s/%s\n",
@@ -90,12 +135,28 @@ void regProcFile()
 			);
 		return;
 	}
-	printk(KERN_INFO "/proc/%s/%s created \n", USGDMA_PROC_DIR,
-		    procfs_ctrl_file);
+	for( i=0;i<dmaBufNum;i++ ) {
+		proc_r->buf[i].file = proc_create_data( constDmaBufDesc[i].name, 0666,
+					usg_Proc_dir,
+					&buf_file_op[i],
+					&proc_r->buf[i]
+					);
+		if ( proc_r->buf[i].file == NULL ) {
+			printk(KERN_ALERT "Error: Could not initialize /proc/%s/%s\n",
+				USGDMA_PROC_DIR,
+		    	constDmaBufDesc[i].name
+				);
+		}
+	}		
 }
 
 void deregProcFile()
 {
+	int i;
+	for( i=0;i<dmaBufNum;i++ ) {
+		remove_proc_entry( constDmaBufDesc[i].name,
+			usg_Proc_dir);
+	}
 	remove_proc_entry( procfs_ctrl_file,
 		usg_Proc_dir);
 	remove_proc_entry( USGDMA_PROC_DIR,
@@ -127,8 +188,28 @@ static void proc_ioread( char *buf )
 
 static void proc_info()
 {
-	size_t pos = 0;
-	sprintf(proc_r->procout+pos,"#info of USG Driver \n");
+	char buf[256];
+	int i;
+	sprintf(proc_r->procout,"#info of USG Driver \n");
+	for( i=0;i<dmaBufNum;i++ ) {
+		sprintf(buf,"v[%s]\t=0x%p | b[%s]\t=0x%lx | size[%s]\t=%lx\n",
+			constDmaBufDesc[i].name,
+			proc_r->buf[i].buf_virt,
+			constDmaBufDesc[i].name,
+			(u64)proc_r->buf[i].buf_bus,
+			constDmaBufDesc[i].name,
+			constDmaBufDesc[i].size
+		);
+		strcat(proc_r->procout,buf);
+	}
+	struct ape_chdma_desc *desc = (struct ape_chdma_desc *)proc_r->buf[0].buf_virt;
+	for( i=0;i<256;i+=16 ) {
+		sprintf(buf,"%03d w0:0x%08x | ep_addr:0x%08x | rc_addr_h:0x%08x | rc_addr_l:0x%08x\n",i,
+			desc->w0,desc->ep_addr,desc->rc_addr_h,desc->rc_addr_l
+			);
+		strcat(proc_r->procout,buf);
+		desc++;
+	}
 	proc_r->procpos = strlen(proc_r->procout)+1;
 }
 
@@ -156,7 +237,7 @@ ctrl_read( struct file *filp,
 	struct usg_dev *usg = (struct usg_dev *)proc_r;
 	printk( KERN_INFO "driver at %p\n", usg );
 	len = strlen(usg->procout); 
-	if( usg->procpos<0 )
+	if( usg->procpos<=0 )
 		return 0;
 	printk(KERN_INFO "len = %d, first DW = %08x %ld\n", len, *(int*)usg->procout, *f_pos);
 	copy_to_user( buf, usg->procout, len+1 );
@@ -202,6 +283,7 @@ static size_t ctrl_write( struct file *filp,
 		proc_info( );
 		goto end;
 	}
+
 end:
     return count;
 }

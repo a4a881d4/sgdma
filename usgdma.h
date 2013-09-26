@@ -59,7 +59,7 @@ struct dmaBufDescription {
 
 static const struct dmaBufDescription constDmaBufDesc[dmaBufNum] = 
 {
-	{"table",DMA_DTB_SIZE},
+	{"tab",DMA_DTB_SIZE},
 	{"in",DMA_BUFFER_SIZE},
 	{"out",DMA_BUFFER_SIZE}
 };
@@ -74,6 +74,8 @@ struct dmaBuf {
 	 * CPU-native endianess
 	 */
 	dma_addr_t buf_bus;
+	struct proc_dir_entry *file;
+	int mmapped;
 };
 	
 
@@ -187,7 +189,7 @@ struct usg_dev {
 	int irq_count;
 
 	struct dmaBuf buf[dmaBufNum];
-	char procout[1024];
+	char procout[0x10000];
 	int procpos;
 };
 

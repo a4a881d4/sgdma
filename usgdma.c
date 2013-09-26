@@ -75,7 +75,7 @@ static void unmap_bars(struct usg_dev *usg, struct pci_dev *dev);
  */
 static struct pci_device_id usg_ids[] = {
 	{	PCI_VENDOR_ID_USGDMA,	/*  Interface chip manufacturer     ID */
-		0x0004,           	/*  Device ID for the ??? function */
+		0xe001,           	/*  Device ID for the ??? function */
 		PCI_ANY_ID,			/*  Subvendor ID wild card */
 		PCI_ANY_ID,         /*  Subdevice ID wild card */
 		0, 0,               /*  class and classmask are unspecified */
@@ -188,18 +188,6 @@ static void unmap_bars(struct usg_dev *usg, struct pci_dev *dev)
 }
 
 
-/**
- * release function
- * 
- * close device, most of the cleaning stuff is made in the
- * function usg_remove
- */
-int usg_release(struct inode *inode, struct file *filp)
-{
-    printk(KERN_DEBUG "closing...\n");
-	return 0;
-}
-
 
 /**
  * This function is called by the PCI core when 
@@ -223,7 +211,7 @@ static int usg_probe( struct pci_dev *dev,
 		goto err_usg;
 	}
 	usg->pci_dev = dev;
-	dev->dev.p = (void *)usg;
+	dev_set_drvdata(&dev->dev, usg);
 	printk(KERN_DEBUG "probe() ape = 0x%p\n", usg);
 
 	for( i=0;i<dmaBufNum;i++ ) {
@@ -231,18 +219,24 @@ static int usg_probe( struct pci_dev *dev,
 			constDmaBufDesc[i].size, 
 			&(usg->buf[i].buf_bus)
 			);
+		usg->buf[i].mmapped=0;
+		usg->buf[i].file=NULL;
 		if( !usg->buf[i].buf_virt ) {
 			printk(KERN_DEBUG "Could not dma_alloc(%d)ate_coherent memory.\n",i);
 			goto err_table;
 		}
+		printk(KERN_DEBUG "virt = %p, bus = 0x%16llx.\n",
+                usg->buf[i].buf_virt, (u64)usg->buf[i].buf_bus);
+
 	}
 	//wake up the device
+	
+	pci_set_master(dev);
 	ret_val = pci_enable_device(dev);
 	if(ret_val!=0){
 		printk(KERN_WARNING "function pci_enable_device failed\n");
 		goto err_enable;
 	}
-	
 	/* show BARs */
 	scan_bars(usg, dev);
 	/* map BARs */
@@ -283,14 +277,9 @@ static void usg_remove(struct pci_dev *dev)
 {
 	printk(KERN_DEBUG "usg_driver removing...\n" ); 
 	int i;
-	struct usg_dev *usg;
 	
-	printk(KERN_DEBUG "remove(0x%p)\n", dev);
-	if ((dev == 0) || (dev->dev.p == 0)) {
-		printk(KERN_DEBUG "remove(dev = 0x%p) dev->dev.driver_data = 0x%p\n", dev, dev->dev.p);
-		return;
-	}
-	usg = (struct usg_dev *)dev->dev.p;
+	struct usg_dev *usg = dev_get_drvdata(&dev->dev);
+	
 	printk(KERN_DEBUG "remove(dev = 0x%p) where dev->dev.driver_data = 0x%p\n", dev, usg);
 	if (usg->pci_dev != dev) {
 		printk(KERN_DEBUG "dev->dev.driver_data->pci_dev (0x%08lx) != dev (0x%08lx)\n",
@@ -346,12 +335,19 @@ static void __exit usg_exit_module(void)
 
 void usg_iowrite( u32 a, u32 d, struct usg_dev *dev )
 {
-	iowrite32( d, dev->bar[USG_BAR_HEADER]+a );
+	void *p = dev->bar[USG_BAR_HEADER];
+	p += a;
+	printk(KERN_DEBUG "write %p <- %x.\n",p,d);
+	iowrite32( d, p );
 }
 
 u32 usg_ioread( u32 a, struct usg_dev *dev )
 {
-	return ioread32( dev->bar[USG_BAR_HEADER]+a );	
+	void *p = dev->bar[USG_BAR_HEADER];
+	p += a;
+	u32 r = ioread32( dev->bar[USG_BAR_HEADER]+a );	
+	printk(KERN_DEBUG "read %p -> %x.\n",p,r);
+	return r;
 }
 
 
