@@ -11,6 +11,7 @@ typedef unsigned long int u64;
 typedef unsigned int u32;
 #define cpu_to_le32 htole32
 #define le32_to_cpu le32toh
+#define MAX_LINE 256
 
 static char *Readline( char *in, FILE *fp ) 
 {
