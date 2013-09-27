@@ -12,6 +12,74 @@ typedef unsigned int u32;
 #define cpu_to_le32 htole32
 #define le32_to_cpu le32toh
 
+static char *Readline( char *in, FILE *fp ) 
+{
+	char *cptr;
+	
+	do {
+		cptr = fgets(in, MAX_LINE, fp);
+		if( cptr==NULL )
+			return NULL;
+		while(*cptr == ' ' || *cptr == '\t') {
+			cptr++;
+    } while ( *cptr=="#" );
+
+    return cptr;    
+}
+
+struct dmaBufDesc {
+	char name[16];
+	unsigned long size;
+	u64 virt;
+	u64 bus;
+	void *mem;
+};
+
+struct dmaBufs {
+	int num;
+	struct dmaBufDesc bufs[16];
+} sgBufs;
+
+static void send2Ctrl(char *cmd)
+{
+	FILE *fp = fopen("/proc/usg/ctrl","wt");
+	fprintf(fp,"%s",cmd);
+	fclose(fp);
+}
+
+static void buildBuf()
+{
+	char line[MAX_LINE+1];
+	char temp1[16],temp2[16];
+	FILE *fp = fopen("/proc/usg/ctrl","rt");
+	char *rec = NULL;
+	sgBufs.num = 0;
+	send2Ctrl("i");
+	while(rec=Readline(line,fp)) {
+		sscanf(rec,"v[%s]\t=0x%lx | b[%s]\t=0x%lx | size[%s]\t=%lx\n",
+			sgBuf.bufs[sgBufs.num].name,
+			&sgBuf.bufs[sgBufs.num].virt,
+			temp1,
+			&sgBuf.bufs[sgBufs.num].bus,
+			temp2,
+			&sgBuf.bufs[sgBufs.num].size
+		);
+		printf("v[%s]\t=0x%lx | b[%s]\t=0x%lx | size[%s]\t=%lx\n",
+			sgBuf.bufs[sgBufs.num].name,
+			sgBuf.bufs[sgBufs.num].virt,
+			sgBuf.bufs[sgBufs.num].name,
+			sgBuf.bufs[sgBufs.num].bus,
+			sgBuf.bufs[sgBufs.num].name,
+			sgBuf.bufs[sgBufs.num].size
+		);
+	}
+	/*
+	int *tab = mmap_buf("/proc/usg/tab",0x1000);
+	int *in = mmap_buf("/proc/usg/in",4096 * 256);
+	int *out = mmap_buf("/proc/usg/tab",4096 * 256);
+
+	*/
+}
 struct ape_chdma_desc {
 	/**
 	 * w0 consists of two 16-bit fields:
@@ -138,17 +206,6 @@ static int dma_read( u64 tab, u64 in, void *tab_p )
 int main(int argc, char *argv[])
 {
 	int i;
-	int *tab = mmap_buf("/proc/usg/tab",0x1000);
-	int *in = mmap_buf("/proc/usg/in",4096 * 256);
-	int *out = mmap_buf("/proc/usg/tab",4096 * 256);
-	
-	unsigned long int tab_bus, in_bus, out_bus;
-	sscanf(argv[1],"%lx",&tab_bus);
-	sscanf(argv[2],"%lx",&in_bus);
-	sscanf(argv[3],"%lx",&out_bus);
-	printf("%lx %lx %lx\n",tab_bus,in_bus,out_bus);
-	printf("table %p\n",tab);
-	for( i=0;i<16;i++ )
-		tab[i]=i;
-	dma_read( tab_bus, in_bus, (void *)tab );
+	buildBuf();
+	//dma_read( tab_bus, in_bus, (void *)tab );
 }
