@@ -23,6 +23,7 @@ static char *Readline( char *in, FILE *fp )
 			return NULL;
 		while(*cptr == ' ' || *cptr == '\t') {
 			cptr++;
+		}
     } while ( *cptr=="#" );
 
     return cptr;    
