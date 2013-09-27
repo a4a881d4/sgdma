@@ -192,7 +192,7 @@ static void proc_info()
 	int i;
 	sprintf(proc_r->procout,"#info of USG Driver \n");
 	for( i=0;i<dmaBufNum;i++ ) {
-		sprintf(buf,"v[%s]\t=0x%p | b[%s]\t=0x%lx | size[%s]\t=%lx\n",
+		sprintf(buf,"v[%s]\t=0x%p | b[%s]\t=0x%lx | size[%s]\t=0x%lx\n",
 			constDmaBufDesc[i].name,
 			proc_r->buf[i].buf_virt,
 			constDmaBufDesc[i].name,

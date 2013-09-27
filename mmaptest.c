@@ -13,22 +13,6 @@ typedef unsigned int u32;
 #define le32_to_cpu le32toh
 #define MAX_LINE 256
 
-static char *Readline( char *in, FILE *fp ) 
-{
-	char *cptr;
-	
-	do {
-		cptr = fgets(in, MAX_LINE, fp);
-		if( cptr==NULL )
-			return NULL;
-		while(*cptr == ' ' || *cptr == '\t') {
-			cptr++;
-		}
-    } while ( *cptr=="#" );
-
-    return cptr;    
-}
-
 struct dmaBufDesc {
 	char name[16];
 	unsigned long size;
@@ -42,6 +26,38 @@ struct dmaBufs {
 	struct dmaBufDesc bufs[16];
 } sgBufs;
 
+static void *mmap_buf( const char *fn, int len )
+{
+	int fd = open(fn,O_RDWR);
+	void *table = mmap( 0, len, PROT_READ|PROT_WRITE,MAP_SHARED,fd,0 );
+	if( !table )
+		printf("mmap %s fail\n",fn);
+	return table;
+}
+
+
+static char *Readline( char *in, FILE *fp ) 
+{
+	char *cptr;
+	
+	do {
+		cptr = fgets(in, MAX_LINE, fp);
+		if( cptr==NULL )
+			return NULL;
+		while(*cptr == ' ' || *cptr == '\t') {
+			cptr++;
+		}
+    } while ( *cptr=='#' );
+
+    return cptr;    
+}
+
+
+	/*
+	 *	the following code is for demo
+	 *	please rewrite with python or bash
+	 */
+	 
 static void send2Ctrl(char *cmd)
 {
 	FILE *fp = fopen("/proc/usg/ctrl","wt");
@@ -49,39 +65,66 @@ static void send2Ctrl(char *cmd)
 	fclose(fp);
 }
 
+static int findChar( char *str, int len, char c )
+{
+	int i;
+	for( i=0;i<len;i++ )
+		if( str[i]==c )
+			return i;
+	return -1;
+}
+
+
 static void buildBuf()
 {
 	char line[MAX_LINE+1];
 	char temp1[16],temp2[16];
 	FILE *fp = fopen("/proc/usg/ctrl","rt");
 	char *rec = NULL;
+	int pos=-1;
 	sgBufs.num = 0;
 	send2Ctrl("i");
 	while(rec=Readline(line,fp)) {
-		sscanf(rec,"v[%s]\t=0x%lx | b[%s]\t=0x%lx | size[%s]\t=%lx\n",
-			sgBuf.bufs[sgBufs.num].name,
-			&sgBuf.bufs[sgBufs.num].virt,
-			temp1,
-			&sgBuf.bufs[sgBufs.num].bus,
-			temp2,
-			&sgBuf.bufs[sgBufs.num].size
+		if( *rec!='v' )
+			continue;
+		strncpy(sgBufs.bufs[sgBufs.num].name,rec+2,5);
+		pos = findChar(sgBufs.bufs[sgBufs.num].name,5,']');
+		if( pos==-1 )
+			continue;
+		sgBufs.bufs[sgBufs.num].name[pos]='\0';
+		rec+=(pos+2);
+		pos = findChar(rec,strlen(rec),'x');
+		if( pos==-1 )
+			continue;
+		sscanf(rec+pos+1,"%lx",&sgBufs.bufs[sgBufs.num].virt);
+		rec+=pos+1;
+		pos = findChar(rec,strlen(rec),'x');
+		if( pos==-1 )
+			continue;
+		sscanf(rec+pos+1,"%lx",&sgBufs.bufs[sgBufs.num].bus);
+		rec+=pos+1;
+		pos = findChar(rec,strlen(rec),'x');
+		if( pos==-1 )
+			continue;
+		sscanf(rec+pos+1,"%lx",&sgBufs.bufs[sgBufs.num].size);
+		printf("v[%s]\t=0x%lx | b[%s]\t=0x%lx | size[%s]\t=0x%lx\n",
+			sgBufs.bufs[sgBufs.num].name,
+			sgBufs.bufs[sgBufs.num].virt,
+			sgBufs.bufs[sgBufs.num].name,
+			sgBufs.bufs[sgBufs.num].bus,
+			sgBufs.bufs[sgBufs.num].name,
+			sgBufs.bufs[sgBufs.num].size
 		);
-		printf("v[%s]\t=0x%lx | b[%s]\t=0x%lx | size[%s]\t=%lx\n",
-			sgBuf.bufs[sgBufs.num].name,
-			sgBuf.bufs[sgBufs.num].virt,
-			sgBuf.bufs[sgBufs.num].name,
-			sgBuf.bufs[sgBufs.num].bus,
-			sgBuf.bufs[sgBufs.num].name,
-			sgBuf.bufs[sgBufs.num].size
-		);
+		sprintf(line,"/proc/usg/%s",sgBufs.bufs[sgBufs.num].name);
+		sgBufs.bufs[sgBufs.num].mem=mmap_buf(line,sgBufs.bufs[sgBufs.num].size);
+		sgBufs.num++;
 	}
-	/*
-	int *tab = mmap_buf("/proc/usg/tab",0x1000);
-	int *in = mmap_buf("/proc/usg/in",4096 * 256);
-	int *out = mmap_buf("/proc/usg/tab",4096 * 256);
-
-	*/
 }
+
+	/*
+	 * 
+	 */
+	 
 struct ape_chdma_desc {
 	/**
 	 * w0 consists of two 16-bit fields:
@@ -124,14 +167,7 @@ struct usg_chdma_table {
 	struct ape_chdma_desc desc[255];
 } __attribute__ ((packed));
 
-int *mmap_buf( const char *fn, int len )
-{
-	int fd = open(fn,O_RDWR);
-	int *table = mmap( 0, len, PROT_READ|PROT_WRITE,MAP_SHARED,fd,0 );
-	if( !table )
-		printf("mmap %s fail\n",fn);
-	return table;
-}
+
 
 /* obtain the 32 most significant (high) bits of a 32-bit or 64-bit address */
 #define pci_dma_h(addr) ((addr >> 16) >> 16)
@@ -203,11 +239,12 @@ static int dma_read( u64 tab, u64 in, void *tab_p )
 	iowrite32(pci_dma_h(tab), 4);
 	iowrite32(pci_dma_l(tab), 8);
 	iowrite32(n, 0xc);
-	printf("EPLAST = %lu\n", le32_to_cpu(ptab->w3) & 0xffffUL);
+	for( i=0;i<16;i++ )
+		printf("EPLAST = %lu\n", le32_to_cpu(ptab->w3) & 0xffffUL);
 }
 int main(int argc, char *argv[])
 {
 	int i;
 	buildBuf();
-	//dma_read( tab_bus, in_bus, (void *)tab );
+	dma_read( sgBufs.bufs[0].bus, sgBufs.bufs[1].bus, sgBufs.bufs[0].mem );
 }
