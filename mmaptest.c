@@ -177,6 +177,7 @@ struct usg_chdma_table {
 static inline void ape_chdma_desc_set(struct ape_chdma_desc *desc, u64 addr, u32 ep_addr, int len)
 {
 	desc->w0 = cpu_to_le32(len / 4);
+	desc->w0 |= 1<<17;
 	desc->ep_addr = cpu_to_le32(ep_addr);
 	desc->rc_addr_h = cpu_to_le32(pci_dma_h(addr));
 	desc->rc_addr_l = cpu_to_le32(pci_dma_l(addr));
@@ -222,24 +223,22 @@ static int dma_read( u64 tab, u64 in, void *tab_p )
 {
 	int i, n = 0,PAGE_SIZE=4096;
 	u32 w;
+	int read_head=0x10;
 	struct usg_chdma_table *ptab = (struct usg_chdma_table *)tab_p;
 	ptab->w3 = cpu_to_le32(0x0000FADE);
 	n = 0;
-	/* read 8192 bytes from RC buffer to EP address 4096,because 32to64 ,so alloc 2*1024 */
-	//ape_chdma_desc_set(&ape->table_virt->desc[n], buffer_bus, 4096, 2 * PAGE_SIZE);
-	ape_chdma_desc_set(&ptab->desc[n], in, 4096, PAGE_SIZE/2);
 	for (i = 0; i < 255; i++)
 		ape_chdma_desc_set(&ptab->desc[i], in, 4096,  PAGE_SIZE/2);
-	/* index of last descriptor */
 	n = i - 1;
 	ptab->desc[n].w0 |= cpu_to_le32(1UL << 16);
     	w = (u32)(n + 1);
     	/*global EPLAST_EN*/
+	iowrite32(pci_dma_h(tab), read_head+4);
+	iowrite32(pci_dma_l(tab), read_head+8);
+	iowrite32(n, read_head+0xc);
 	w |= (1UL << 18);
-	iowrite32(w, 0);
-	iowrite32(pci_dma_h(tab), 4);
-	iowrite32(pci_dma_l(tab), 8);
-	iowrite32(n, 0xc);
+	iowrite32(w, read_head+0);
+	
 	for( i=0;i<16;i++ )
 	{
 		volatile u32 *p = &ptab->w3;
@@ -250,5 +249,7 @@ int main(int argc, char *argv[])
 {
 	int i;
 	buildBuf();
+	iowrite32(0xffff, 0x10);
+	iowrite32(0xffff, 0x10);
 	dma_read( sgBufs.bufs[0].bus, sgBufs.bufs[1].bus, sgBufs.bufs[0].mem );
 }

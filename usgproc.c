@@ -203,7 +203,7 @@ static void proc_info()
 		strcat(proc_r->procout,buf);
 	}
 	struct ape_chdma_desc *desc = (struct ape_chdma_desc *)proc_r->buf[0].buf_virt;
-	for( i=0;i<256;i+=256 ) {
+	for( i=0;i<4;i++ ) {
 		sprintf(buf,"%03d w0:0x%08x | ep_addr:0x%08x | rc_addr_h:0x%08x | rc_addr_l:0x%08x\n",i,
 			desc->w0,desc->ep_addr,desc->rc_addr_h,desc->rc_addr_l
 			);
