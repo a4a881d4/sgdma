@@ -195,12 +195,23 @@ static void unmap_bars(struct usg_dev *usg, struct pci_dev *dev)
  * 
  * Purpose: initialize the device properly 
  */
+
+static irqreturn_t usg_isr(int irq, void *dev_id)
+{
+        struct usg_dev *usg = (struct usg_dev *)dev_id;
+        if (!usg)
+                return IRQ_NONE;
+        usg->irq_count++;
+        return IRQ_HANDLED;
+}
+
 static int usg_probe( struct pci_dev *dev, 
                       const struct pci_device_id *id )
 {
 	int ret_val = 0;
 	int i;
 	struct usg_dev *usg = NULL;
+        u8 irq_pin, irq_line;
 
 	printk(KERN_DEBUG "probe(dev = 0x%p, pciid = 0x%p)\n", dev, id);
 
@@ -231,18 +242,59 @@ static int usg_probe( struct pci_dev *dev,
 	}
 	//wake up the device
 	
-	pci_set_master(dev);
 	ret_val = pci_enable_device(dev);
 	if(ret_val!=0){
 		printk(KERN_WARNING "function pci_enable_device failed\n");
 		goto err_enable;
 	}
+
+	pci_set_master(dev);
+        /* enable message signaled interrupts */
+        ret_val = pci_enable_msi(dev);
+        if (ret_val) {
+                printk(KERN_DEBUG "Could not enable MSI interrupting.\n");
+                usg->msi_enabled = 0;
+        } else {
+                printk(KERN_DEBUG "Enabled MSI interrupting.\n");
+                usg->msi_enabled = 1;
+        }
+        ret_val = pci_request_regions(dev, DRV_NAME);
+        if (ret_val) {
+                usg->in_use = 1;
+                goto err_regions;
+        }
+        usg->got_regions = 1;
+
+        ret_val = pci_read_config_byte(dev, PCI_INTERRUPT_PIN, &irq_pin);
+        if (ret_val)
+                goto err_irq;
+        printk(KERN_DEBUG "IRQ pin #%d (0=none, 1=INTA#...4=INTD#).\n", irq_pin);
+
+        ret_val = pci_read_config_byte(dev, PCI_INTERRUPT_LINE, &irq_line);
+        if (ret_val) {
+                printk(KERN_DEBUG "Could not query PCI_INTERRUPT_LINE, error %d\n", ret_val);
+                goto err_irq;
+        }
+        printk(KERN_DEBUG "IRQ line #%d.\n", irq_line);
+        irq_line = dev->irq;
+        ret_val = request_irq(irq_line, usg_isr, IRQF_SHARED, DRV_NAME, (void *)usg);
+        if (ret_val) {
+                printk(KERN_DEBUG "Could not request IRQ #%d, error %d\n", irq_line, ret_val);
+                usg->irq_line = -1;
+                goto err_irq;
+        }
+        usg->irq_line = (int)irq_line;
+        printk(KERN_DEBUG "Succesfully requested IRQ #%d with dev_id 0x%p\n", irq_line, usg);
+
+
+
 	/* show BARs */
 	scan_bars(usg, dev);
 	/* map BARs */
 	ret_val = map_bars(usg, dev);
 	if (ret_val)
 		goto err_map;
+	
 	ret_val = 0;
 	printk(KERN_DEBUG "probe() successful.\n");
 	memset(usg->procout,0,1024);
@@ -251,7 +303,18 @@ static int usg_probe( struct pci_dev *dev,
 	proc_r=usg;
 	goto end;
 		
-err_map:		
+err_map:
+        if (usg->irq_line >= 0)
+                free_irq(usg->irq_line, (void *)usg);
+
+err_irq:
+        if (usg->msi_enabled)
+                pci_disable_msi(dev);
+        if (!usg->in_use)
+                pci_disable_device(dev);
+        if (usg->got_regions)
+                pci_release_regions(dev);
+err_regions:		
 err_enable:
 err_table:
 	for( i=0;i<dmaBufNum;i++ ) {

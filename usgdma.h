@@ -34,6 +34,8 @@
 
 #define USGDMA_DRIVER_NAME 	"usg"
 #define USGDMA_BAR            0x00
+#define DRV_NAME "sgdma"
+
 
 #define USGDMA_MAJOR          0x00   /* dynamic major by default */
 #define USGDMA_MINOR          0x00   /* value other then null is not */
@@ -54,7 +56,7 @@ static const unsigned long bar_min_len[6] =
 
 struct dmaBufDescription {
 	char name[16];
-	unsigned long size;
+	u64 size;
 };
 
 static const struct dmaBufDescription constDmaBufDesc[dmaBufNum] = 
@@ -181,10 +183,18 @@ struct usg_dev {
 	 * the End Point. Used by map_bars()/unmap_bars().
 	 */
 	void * __iomem bar[USG_BAR_NUM];
-	/* if the device regions could not be allocated, assume and remember it
-	 * is in use by another driver; this driver must not disable the device.
-	 */
-	u8 revision;
+        /* if the device regions could not be allocated, assume and remember it
+         * is in use by another driver; this driver must not disable the device.
+         */
+        int in_use;
+        /* whether this driver enabled msi for the device */
+        int msi_enabled;
+        /* whether this driver could obtain the regions */
+        int got_regions;
+        /* irq line successfully requested by this driver, -1 otherwise */
+        int irq_line;
+        /* board revision */
+        u8 revision;
 	/* interrupt count, incremented by the interrupt handler */
 	int irq_count;
 
