@@ -232,15 +232,19 @@ static int dma_read( u64 tab, u64 in, void *tab_p )
 		ape_chdma_desc_set(&ptab->desc[i], in, 4096,  PAGE_SIZE/2);
 	/* index of last descriptor */
 	n = i - 1;
-    w = (u32)(n + 1);
-    /*global EPLAST_EN*/
+	ptab->desc[n].w0 |= cpu_to_le32(1UL << 16);
+    	w = (u32)(n + 1);
+    	/*global EPLAST_EN*/
 	w |= (1UL << 18);
 	iowrite32(w, 0);
 	iowrite32(pci_dma_h(tab), 4);
 	iowrite32(pci_dma_l(tab), 8);
 	iowrite32(n, 0xc);
 	for( i=0;i<16;i++ )
-		printf("EPLAST = %lu\n", le32_to_cpu(ptab->w3) & 0xffffUL);
+	{
+		volatile u32 *p = &ptab->w3;
+		printf("EPLAST = %lu\n", le32_to_cpu(*p) & 0xffffUL);
+	}
 }
 int main(int argc, char *argv[])
 {

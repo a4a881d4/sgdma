@@ -359,7 +359,23 @@ static void usg_remove(struct pci_dev *dev)
 			);
 		}
 	}
-	pci_disable_device(dev);
+	unmap_bars(usg, dev);
+        if (usg->irq_line >= 0) {
+                printk(KERN_DEBUG "Freeing IRQ #%d for dev_id 0x%08lx.\n",
+                usg->irq_line, (unsigned long)usg);
+                free_irq(usg->irq_line, (void *)usg);
+        }
+        /* MSI was enabled? */
+        if (usg->msi_enabled) {
+                /* Disable MSI @see Documentation/MSI-HOWTO.txt */
+                pci_disable_msi(dev);
+                usg->msi_enabled = 0;
+        }
+        if (!usg->in_use)
+                pci_disable_device(dev);
+        if (usg->got_regions)
+                /* to be called after device disable */
+                pci_release_regions(dev);
 }
 
 
