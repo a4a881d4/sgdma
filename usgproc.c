@@ -171,6 +171,7 @@ static void proc_iowrite( char *buf )
 	u32 addr;
 	u32 data;
 	sscanf(buf,"%x %x",&addr,&data);
+	/* addr is a offset, data is a value*/
 	usg_iowrite( addr, data, proc_r );	
 	printk( KERN_INFO "write driver at %p\n", proc_r );
 }
