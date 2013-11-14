@@ -46,7 +46,7 @@
 									 let (DMA_DTB_NUM+1)*16 == 4096*N will not waste memory */
 									 
 #define DMA_BUFFER_SIZE (4096 * (DMA_DTB_NUM)) /* Each descriptor manages a 4096 bytes DMA operation */
-#define DMA_DTB_SIZE (16 * DMA_DTB_NUM + 16)) /* Descriptor table's size = sizeof(ape_chdma_desc) * DMA_DTB_NUM + 16 */
+#define DMA_DTB_SIZE (16 * DMA_DTB_NUM + 16) /* Descriptor table's size = sizeof(ape_chdma_desc) * DMA_DTB_NUM + 16 */
 
 #define USG_BAR_HEADER (2)	/*The USG header BAR number */
 

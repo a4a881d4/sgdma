@@ -12,6 +12,7 @@ typedef unsigned int u32;
 #define cpu_to_le32 htole32
 #define le32_to_cpu le32toh
 #define MAX_LINE 256
+#define DMA_DTB_NUM			511		/* Descriptor's count.*/
 
 struct dmaBufDesc {
 	char name[16];  /* Name of this DMA */
