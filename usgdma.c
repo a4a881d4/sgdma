@@ -152,6 +152,8 @@ static int map_bars(struct usg_dev *usg, struct pci_dev *dev)
 		}
 		/* map the device memory or IO region into kernel virtual
 		 * address space */
+		/* BAR 0 is mapped but not used; BAR 1 is not mapped even */
+		/* BAR 2 is dma descriptor header, which has a pointer refer to the base address of descriptors*/
 		usg->bar[i] = pci_iomap(dev, i, bar_min_len[i]);
 		if (!usg->bar[i]) {
 			printk(KERN_DEBUG "Could not map BAR #%d.\n", i);
@@ -411,12 +413,15 @@ static void __exit usg_exit_module(void)
 	
 }
 
-
+/* Write USG header bar: offset 'a', value 'b' 
+ * usg_iowrite is called when /proc/usg/ctrl is write */
 void usg_iowrite( u32 a, u32 d, struct usg_dev *dev )
 {
 	void *p = dev->bar[USG_BAR_HEADER];
 	p += a;
 	printk(KERN_DEBUG "write %p <- %x.\n",p,d);
+
+	/* Provided by kernel, not the one in user space */
 	iowrite32( d, p );
 }
 

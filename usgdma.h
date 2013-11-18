@@ -41,16 +41,25 @@
 #define USGDMA_MINOR          0x00   /* value other then null is not */
                                    /* supported by the load script */
 #define USGDMA_DEVS           0x01   /* number of devices */
-#define DMA_BUFFER_SIZE (4096 * 256)
-#define DMA_DTB_SIZE (4096)
 
-#define USG_BAR_HEADER (2)
+#define DMA_DTB_NUM			511		/* Descriptor's count. As the table has 16Bytes before descriptors,
+									 let (DMA_DTB_NUM+1)*16 == 4096*N will not waste memory */
+									 
+#define DMA_BUFFER_SIZE (4096 * (DMA_DTB_NUM)) /* Each descriptor manages a 4096 bytes DMA operation */
+#define DMA_DTB_SIZE (16 * DMA_DTB_NUM + 16) /* Descriptor table's size = sizeof(ape_chdma_desc) * DMA_DTB_NUM + 16 */
+
+#define USG_BAR_HEADER (2)	/*The USG header BAR number */
 
 #define PCI_VENDOR_ID_USGDMA 0x1172
 
-#define USG_BAR_NUM (3)
+#define USG_BAR_NUM (3) /* only three are used, 
+but it defines six bar min lenght below */
+
 static const unsigned long bar_min_len[6] =
-	{ 32768, 0, 256, 0, 32768, 0 };
+	{ 32768 /*Descriptor Table */, 0, 256 /* HEADER */, 0, 32768, 0 };
+/* BAR 0 is mapped but not used; BAR 1 is not mapped even */
+/* BAR 2 is dma descriptor header, which has a pointer refer to the base address of descriptors*/
+
 
 #define dmaBufNum (3)
 
@@ -92,6 +101,8 @@ struct dmaBuf {
  * and fields must be setup before doing so.
  *
  * @see ug_pci_express 8.0, tables 7-3, 7-4 and 7-5 at page 7-14.
+ * New Doc:
+ * @see ug_pci_express 11.0, tables 15-5 ~ 15-13 start from page 15-14, p260.
  * @note This header must be written in four 32-bit (PCI DWORD) writes.
  */
 struct ape_chdma_header {
@@ -166,7 +177,7 @@ struct usg_chdma_table {
 	/* the actual array of descriptors
     * 0x10-0x1f, 0x20-0x2f, ... 0xff0-0xfff (255 entries)
     */
-	struct ape_chdma_desc desc[255];
+	struct ape_chdma_desc desc[DMA_DTB_NUM];
 } __attribute__ ((packed));
 
 /**
